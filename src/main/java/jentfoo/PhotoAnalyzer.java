@@ -11,6 +11,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.threadly.concurrent.CentralThreadlyPool;
@@ -28,34 +30,66 @@ import com.drew.metadata.Tag;
 
 public class PhotoAnalyzer {
   public static void main(String[] args) {
-    PhotoAnalyzer pa = new PhotoAnalyzer(CentralThreadlyPool.computationPool(), args[0]);
+    PhotoAnalyzer pa = new PhotoAnalyzer(CentralThreadlyPool.computationPool(), args[0], 
+                                         AnalyzerConfig.ANALYZE_ONLY_EDITED);
     
     pa.analyze();
-    System.out.println("DONE!!");
   }
 
   private final SchedulerService scheduler;
   private final File root;
+  private final Predicate<File> fileFilter;
   private final Set<ListenableFuture<?>> waitingFutures = 
       Collections.newSetFromMap(new ConcurrentHashMap<>());
   private final LongAdder totalImages = new LongAdder();
   private final List<LensConfig> lensStats;
   
-  public PhotoAnalyzer(SchedulerService scheduler, String path) {
+  public PhotoAnalyzer(SchedulerService scheduler, String path, boolean analyzeOnlyEdited) {
     this.scheduler = scheduler;
     this.root = new File(path);
     
     if (! root.exists()) {
       throw new IllegalArgumentException("Path does not exist: " + path);
     }
+    
     lensStats = new ArrayList<>(AnalyzerConfig.LENS_FOCAL_LENGTHS.length);
     for (Pair<Integer, Integer> p : AnalyzerConfig.LENS_FOCAL_LENGTHS) {
       lensStats.add(new LensConfig(p.getLeft(), p.getRight()));
     }
+    
+    if (analyzeOnlyEdited) {
+      // prescan to find edited images
+      Set<String> editedFileNames = FileCrawler.crawl(root, AnalyzerConfig::isEditedImageFile)
+                                               .map((f) -> {
+                                                 String name = f.getName();
+                                                 int delim = name.indexOf("-edit");
+                                                 if (delim < 0) {
+                                                   delim = name.lastIndexOf('.');
+                                                 }
+                                                 if (delim > 0) {
+                                                   name = name.substring(0, delim);
+                                                 }
+                                                 
+                                                 return name;
+                                               })
+                                               .collect(Collectors.toSet());
+      fileFilter = (f) -> {
+        if (AnalyzerConfig.isOriginalImageFile(f)) {
+          for (String prefix : editedFileNames) {
+            if (f.getName().startsWith(prefix)) {
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+    } else {
+      fileFilter = AnalyzerConfig::isOriginalImageFile;
+    }
   }
   
   protected Stream<File> imageStream() {
-    return FileCrawler.crawl(root, AnalyzerConfig::isOriginalImageFile);
+    return FileCrawler.crawl(root, fileFilter);
   }
   
   public void analyze() {
@@ -86,6 +120,7 @@ public class PhotoAnalyzer {
                             " (" + ((lc.matchCount.sum() * 100) / totalImages) + "%)" + 
                             " \ttooTele:" + lc.tooTeleCount.sum());
     }
+    System.out.println("total images: " + totalImages);
   }
   
   protected void analyzeImage(File f) throws ImageProcessingException, IOException {
@@ -123,7 +158,7 @@ public class PhotoAnalyzer {
   }
   
   protected void handleFailure(Throwable t) {
-    synchronized (this) {
+    synchronized (System.err) {
       System.err.println("Failure analyzing image");
       t.printStackTrace(System.err);
     }
