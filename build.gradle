@@ -1,0 +1,102 @@
+apply plugin: 'java'
+apply plugin: 'checkstyle'
+apply plugin: 'jacoco'
+
+version = '0.1-SNAPSHOT'
+
+repositories {
+  mavenCentral()
+  maven {
+    url 'https://oss.sonatype.org/content/repositories/snapshots/'
+  }
+  maven {
+    url 'https://swt-repo.googlecode.com/svn/repo/'
+  }
+}
+
+dependencies {
+  testImplementation group: 'junit', name: 'junit', version: '4.12'
+
+  implementation (
+    "org.threadly:threadly:6.+",
+  )
+}
+
+compileJava {
+  options.compilerArgs << "-Xlint:all" << "-Werror"
+}
+
+compileTestJava {
+  options.compilerArgs << "-Xlint:all" << "-Werror"
+}
+
+plugins.withType(JavaPlugin) {
+  checkstyle.sourceSets = [sourceSets.main]
+}
+
+test {
+  maxParallelForks = Math.max(1, (int)(Runtime.getRuntime().availableProcessors() / 4))
+  jacoco {
+    excludes = ['**/package-info**','**/*Test']
+    destinationFile = file("$buildDir/reports/jacoco/test.exec")
+  }
+  getReports().getJunitXml().setDestination(file("${buildDir}/reports/tests/xml"))
+  getReports().getHtml().setDestination(file("${buildDir}/reports/tests/html"))
+  setBinResultsDir(file("${buildDir}/reports/tests/bin"))
+}
+
+build.dependsOn jacocoTestReport
+
+jacocoTestReport {
+  reports {
+    csv.enabled = false
+    xml.enabled = true
+    xml.destination = file("$buildDir/reports/jacoco/jacoco.xml")
+    html.enabled = true
+    html.destination = file("$buildDir/reports/jacoco/html")
+  }
+  doLast {
+    println "Test results available at:"
+    println "html - $buildDir/reports/tests/html/index.html"
+    println "Test coverage reports available at:"
+    println "html - $buildDir/reports/jacoco/html/index.html"
+  }
+}
+
+jar {
+  manifest {
+    attributes (
+      'Implementation-Title': 'PhotoMM', 
+      'Implementation-Version': archiveVersion
+    )
+  }
+  from configurations.compileClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+}
+
+javadoc {
+  source = sourceSets.main.allJava
+  options.memberLevel = org.gradle.external.javadoc.JavadocMemberLevel.PUBLIC
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+  classifier = 'javadoc'
+  from 'build/docs/javadoc'
+}
+
+task sourcesJar(type: Jar) {
+  from sourceSets.main.allSource
+  classifier = 'sources'
+}
+
+build.dependsOn("copyLibs");
+
+task copyLibs(type: Copy) {
+  into "$buildDir/dependencies/"
+  from configurations.runtimeClasspath
+}
+
+artifacts {
+  archives jar
+  archives javadocJar
+  archives sourcesJar
+}
