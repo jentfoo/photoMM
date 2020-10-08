@@ -21,6 +21,7 @@ import org.threadly.concurrent.future.FutureUtils;
 import org.threadly.concurrent.future.ListenableFuture;
 import org.threadly.util.ExceptionUtils;
 import org.threadly.util.Pair;
+import org.threadly.util.StringUtils;
 
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.imaging.ImageProcessingException;
@@ -63,7 +64,7 @@ public class PhotoAnalyzer {
                                                .map((f) -> {
                                                  String name = f.getName();
                                                  int delim = name.indexOf("-edit");
-                                                 if (delim < 0) {
+                                                 if (delim <= 0) {
                                                    delim = name.lastIndexOf('.');
                                                  }
                                                  if (delim > 0) {
@@ -114,10 +115,16 @@ public class PhotoAnalyzer {
     
     long totalImages = this.totalImages.sum();
     for (LensConfig lc : lensStats) {
-      System.out.println("Lens " + lc.wideMM + "-" + lc.teleMM + "mm -" + 
+      String lensMM;
+      if (lc.wideMM == lc.teleMM) {
+        lensMM = lc.wideMM + "mm";
+      } else {
+        lensMM =  lc.wideMM + "-" + lc.teleMM + "mm";
+      }
+      System.out.println("Lens " + StringUtils.padEnd(lensMM, 10, ' ') + "-" + 
                             " tooWide:" + lc.tooWideCount.sum() + 
-                            " \tmatch:" + lc.matchCount.sum() + 
-                            " (" + ((lc.matchCount.sum() * 100) / totalImages) + "%)" + 
+                            " \tmatch:" + StringUtils.padEnd(Long.toString(lc.matchCount.sum()), 6, ' ') + 
+                            "(" + ((lc.matchCount.sum() * 100) / totalImages) + "%)" + 
                             " \ttooTele:" + lc.tooTeleCount.sum());
     }
     System.out.println("total images: " + totalImages);
@@ -197,9 +204,9 @@ public class PhotoAnalyzer {
     }
     
     public void witnessFocalLength(int mm) {
-      if (mm < wideMM) {
+      if (mm < wideMM - AnalyzerConfig.MM_ALLOWED_VARIANCE) {
         tooWideCount.increment();
-      } else if (mm > teleMM) {
+      } else if (mm > teleMM + AnalyzerConfig.MM_ALLOWED_VARIANCE) {
         tooTeleCount.increment();
       } else {
         matchCount.increment();
