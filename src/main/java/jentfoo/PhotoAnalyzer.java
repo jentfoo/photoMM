@@ -31,26 +31,33 @@ import com.drew.metadata.Tag;
 
 public class PhotoAnalyzer {
   public static void main(String[] args) {
-    PhotoAnalyzer pa = new PhotoAnalyzer(CentralThreadlyPool.computationPool(), args[0], 
+    PhotoAnalyzer pa = new PhotoAnalyzer(CentralThreadlyPool.computationPool(), args, 
                                          AnalyzerConfig.ANALYZE_ONLY_EDITED);
     
     pa.analyze();
   }
 
   private final SchedulerService scheduler;
-  private final File root;
+  private final File[] roots;
   private final Predicate<File> fileFilter;
   private final Set<ListenableFuture<?>> waitingFutures = 
       Collections.newSetFromMap(new ConcurrentHashMap<>());
   private final LongAdder totalImages = new LongAdder();
   private final List<LensConfig> lensStats;
   
-  public PhotoAnalyzer(SchedulerService scheduler, String path, boolean analyzeOnlyEdited) {
+  public PhotoAnalyzer(SchedulerService scheduler, String[] paths, boolean analyzeOnlyEdited) {
     this.scheduler = scheduler;
-    this.root = new File(path);
     
-    if (! root.exists()) {
-      throw new IllegalArgumentException("Path does not exist: " + path);
+    if (paths == null || paths.length == 0) {
+      throw new IllegalArgumentException("No paths specified");
+    }
+    roots = new File[paths.length];
+    for (int i = 0; i < paths.length; i++) {
+      roots[i] = new File(paths[i]);
+      
+      if (! roots[i].exists()) {
+        throw new IllegalArgumentException("Path does not exist: " + paths[i]);
+      }
     }
     
     lensStats = new ArrayList<>(AnalyzerConfig.LENS_FOCAL_LENGTHS.length);
@@ -60,7 +67,7 @@ public class PhotoAnalyzer {
     
     if (analyzeOnlyEdited) {
       // prescan to find edited images
-      Set<String> editedFileNames = FileCrawler.crawl(root, AnalyzerConfig::isEditedImageFile)
+      Set<String> editedFileNames = FileCrawler.crawl(roots, AnalyzerConfig::isEditedImageFile)
                                                .map((f) -> {
                                                  String name = f.getName();
                                                  int delim = name.indexOf("-edit");
@@ -90,7 +97,7 @@ public class PhotoAnalyzer {
   }
   
   protected Stream<File> imageStream() {
-    return FileCrawler.crawl(root, fileFilter);
+    return FileCrawler.crawl(roots, fileFilter);
   }
   
   public void analyze() {
